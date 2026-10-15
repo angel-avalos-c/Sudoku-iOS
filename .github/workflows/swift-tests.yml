@@ -1,0 +1,27 @@
+
+name: Swift Build and Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  swift-tests:
+    name: Build and Test Swift Package
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Display Swift version
+        run: swift --version
+
+      - name: Build SudokuCore
+        run: swift build
+
+      - name: Run Swift tests
+        run: swift test
