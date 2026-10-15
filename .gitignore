@@ -1,0 +1,7 @@
+﻿.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+.swiftpm/configuration/registries.json
+.swiftpm/security/
+DerivedData/
+*.xcuserstate
+.DS_Store
