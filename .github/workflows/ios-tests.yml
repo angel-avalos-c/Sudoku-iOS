@@ -66,6 +66,23 @@ jobs:
           set -o pipefail
           xcodebuild -project iOS/SudokuApp.xcodeproj -scheme SudokuApp -configuration Debug -sdk iphonesimulator -destination "generic/platform=iOS Simulator" CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-logs/build.log
 
+      - name: Test SudokuApp on an available iOS Simulator
+        shell: bash
+        run: |
+          set -o pipefail
+          simulator_id="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')"
+          if [[ -z "$simulator_id" ]]; then
+            echo "No available iPhone Simulator was found." | tee build-logs/test-destination.log
+            exit 1
+          fi
+          xcodebuild -showdestinations -project iOS/SudokuApp.xcodeproj -scheme SudokuApp 2>&1 | tee build-logs/test-destinations.log
+          if ! grep -Fq "id:$simulator_id" build-logs/test-destinations.log; then
+            echo "Selected iPhone Simulator ID $simulator_id is not a valid SudokuApp test destination." | tee -a build-logs/test-destination.log
+            exit 1
+          fi
+          printf 'Using iOS Simulator ID: %s\n' "$simulator_id" | tee build-logs/test-destination.log
+          xcodebuild test -project iOS/SudokuApp.xcodeproj -scheme SudokuApp -configuration Debug -destination "platform=iOS Simulator,id=$simulator_id" -resultBundlePath build-logs/SudokuAppTests.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee build-logs/test.log
+
       - name: Upload failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
