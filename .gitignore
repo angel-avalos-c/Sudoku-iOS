@@ -3,5 +3,6 @@
 .swiftpm/configuration/registries.json
 .swiftpm/security/
 DerivedData/
+iOS/SudokuApp.xcodeproj/xcuserdata/
 *.xcuserstate
 .DS_Store
