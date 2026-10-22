@@ -4,5 +4,6 @@
 .swiftpm/security/
 DerivedData/
 iOS/SudokuApp.xcodeproj/xcuserdata/
+ios-build-diagnostics/
 *.xcuserstate
 .DS_Store
