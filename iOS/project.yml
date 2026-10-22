@@ -24,6 +24,16 @@ targets:
     dependencies:
       - package: SudokuCore
         product: SudokuCore
+  SudokuAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: SudokuAppTests
+    dependencies:
+      - target: SudokuApp
+      - package: SudokuCore
+        product: SudokuCore
 schemes:
   SudokuApp:
     build:
@@ -31,3 +41,6 @@ schemes:
         SudokuApp: all
     run:
       config: Debug
+    test:
+      targets:
+        - SudokuAppTests
