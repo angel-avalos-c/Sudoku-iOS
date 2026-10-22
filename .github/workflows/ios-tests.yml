@@ -1,0 +1,75 @@
+name: iOS Simulator Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-simulator-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator-build:
+    name: Build SudokuApp for iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare diagnostics directory
+        run: mkdir -p build-logs
+
+      - name: Select Xcode 16.4
+        shell: bash
+        run: |
+          set -o pipefail
+          sudo xcode-select --switch /Applications/Xcode_16.4.app 2>&1 | tee build-logs/xcode-select.log
+
+      - name: Install pinned XcodeGen
+        shell: bash
+        run: |
+          set -o pipefail
+          { brew install mint && mint install yonaskolb/XcodeGen@2.46.0; } 2>&1 | tee build-logs/xcodegen-install.log
+
+      - name: Generate and verify Xcode project
+        shell: bash
+        run: |
+          set -o pipefail
+          mint run yonaskolb/XcodeGen@2.46.0 xcodegen generate --spec iOS/project.yml 2>&1 | tee build-logs/xcodegen-generate.log
+          git diff -- iOS/SudokuApp.xcodeproj > build-logs/xcodegen-project.diff
+          git ls-files --others --exclude-standard -- iOS/SudokuApp.xcodeproj | tee build-logs/xcodegen-project-untracked.txt
+          git diff --exit-code -- iOS/SudokuApp.xcodeproj
+
+      - name: Display Xcode version
+        run: xcodebuild -version | tee build-logs/xcode-version.log
+
+      - name: List available simulators
+        run: xcrun simctl list devices available | tee build-logs/simulators.log
+
+      - name: List project schemes
+        run: xcodebuild -list -project iOS/SudokuApp.xcodeproj | tee build-logs/project-list.log
+
+      - name: Show simulator destinations
+        run: xcodebuild -showdestinations -project iOS/SudokuApp.xcodeproj -scheme SudokuApp | tee build-logs/destinations.log
+
+      - name: Build for iOS Simulator
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild -project iOS/SudokuApp.xcodeproj -scheme SudokuApp -configuration Debug -sdk iphonesimulator -destination "generic/platform=iOS Simulator" CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build-logs/build.log
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-diagnostics
+          path: build-logs
+          if-no-files-found: warn
