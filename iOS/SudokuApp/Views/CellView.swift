@@ -12,7 +12,7 @@ struct CellView: View {
         Button(action: action) {
             Text(cell.value == 0 ? "" : "\(cell.value)")
                 .font(.title2.weight(cell.isGiven ? .bold : .regular))
-                .foregroundStyle(cell.isGiven ? .primary : .blue)
+                .foregroundStyle(cell.isGiven ? Color.primary : Color.blue)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(isSelected ? Color.accentColor.opacity(0.25) : Color.clear)
                 .contentShape(Rectangle())
