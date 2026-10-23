@@ -39,7 +39,7 @@ final class GameViewModel: ObservableObject {
     }
 
     /// Starts a session with a generated puzzle without blocking the main actor.
-    init(difficulty: SudokuDifficulty) {
+    convenience init(difficulty: SudokuDifficulty) {
         self.init(difficulty: difficulty, sessionFactory: { try GameSession(difficulty: $0) })
     }
 
