@@ -19,6 +19,8 @@ public enum GameStatus: Equatable, Sendable {
 public enum GameSessionError: Error, Equatable, Sendable {
     /// A completed session is immutable until it is reset.
     case gameAlreadyCompleted
+    /// A distinct dynamically generated puzzle could not be created in time.
+    case unableToGenerateNewPuzzle(SudokuDifficulty, attempts: Int)
 }
 
 /// State and interactions for one deterministic Sudoku game.
@@ -29,19 +31,43 @@ public enum GameSessionError: Error, Equatable, Sendable {
 /// Attempts to edit a completed game throw `GameSessionError.gameAlreadyCompleted`
 /// and retain the existing `lastMoveError` unchanged.
 public struct GameSession: Equatable, Sendable {
-    public let puzzle: Puzzle
+    public private(set) var puzzle: Puzzle
+    /// The difficulty of a dynamically generated puzzle, if applicable.
+    public private(set) var difficulty: SudokuDifficulty?
     public private(set) var board: Board
     public private(set) var selectedCell: CellCoordinate?
     public private(set) var status: GameStatus
     public private(set) var lastMoveError: SudokuBoardError?
 
+    private var puzzleGenerator: SudokuPuzzleGenerator?
+
     /// Starts a session from a validated, reproducible puzzle.
     public init(puzzle: Puzzle = PuzzleCatalog.starter) throws {
         self.puzzle = puzzle
+        difficulty = nil
         board = try puzzle.makeBoard()
         selectedCell = nil
         status = board.isSolved ? .completed : .inProgress
         lastMoveError = nil
+        puzzleGenerator = nil
+    }
+
+    /// Starts a session from a newly generated puzzle at the requested difficulty.
+    public init(difficulty: SudokuDifficulty) throws {
+        var generator = SudokuPuzzleGenerator()
+        let puzzle = try generator.generate(difficulty: difficulty)
+        try self.init(puzzle: puzzle)
+        self.difficulty = difficulty
+        puzzleGenerator = generator
+    }
+
+    /// Starts a deterministic generated session for reproducible tests.
+    public init(difficulty: SudokuDifficulty, seed: UInt64) throws {
+        var generator = SudokuPuzzleGenerator(seed: seed)
+        let puzzle = try generator.generate(difficulty: difficulty)
+        try self.init(puzzle: puzzle)
+        self.difficulty = difficulty
+        puzzleGenerator = generator
     }
 
     /// Selects any in-bounds cell. Both given and editable cells may be
@@ -93,6 +119,65 @@ public struct GameSession: Equatable, Sendable {
         selectedCell = nil
         lastMoveError = nil
         updateStatus()
+    }
+
+    /// Replaces the current puzzle with a dynamically generated one.
+    ///
+    /// The session retains its generator state, so a seeded session produces a
+    /// reproducible sequence. The current puzzle is never returned again by
+    /// this transition; failure to find a distinct replacement is explicit.
+    public mutating func newGame(difficulty: SudokuDifficulty) throws {
+        try newGame(difficulty: difficulty, maximumGenerationAttempts: 12)
+    }
+
+    mutating func newGame(
+        difficulty: SudokuDifficulty,
+        maximumGenerationAttempts: Int
+    ) throws {
+        var generator = puzzleGenerator ?? SudokuPuzzleGenerator()
+        let nextPuzzle = try generateDistinctPuzzle(
+            difficulty: difficulty,
+            using: &generator,
+            maximumGenerationAttempts: maximumGenerationAttempts
+        )
+        let nextBoard = try nextPuzzle.makeBoard()
+
+        puzzle = nextPuzzle
+        self.difficulty = difficulty
+        board = nextBoard
+        selectedCell = nil
+        lastMoveError = nil
+        puzzleGenerator = generator
+        updateStatus()
+    }
+
+    private func generateDistinctPuzzle(
+        difficulty: SudokuDifficulty,
+        using generator: inout SudokuPuzzleGenerator,
+        maximumGenerationAttempts: Int
+    ) throws -> Puzzle {
+        let maximumDistinctPuzzleAttempts = 3
+        for _ in 0..<maximumDistinctPuzzleAttempts {
+            do {
+                let candidate = try generator.generate(
+                    difficulty: difficulty,
+                    maximumGenerationAttempts: maximumGenerationAttempts
+                )
+                if candidate.givens != puzzle.givens {
+                    return candidate
+                }
+            } catch let error as SudokuPuzzleGeneratorError {
+                if case .unableToGenerateDifficulty = error {
+                    continue
+                }
+                throw error
+            }
+        }
+
+        throw GameSessionError.unableToGenerateNewPuzzle(
+            difficulty,
+            attempts: maximumDistinctPuzzleAttempts
+        )
     }
 
     private mutating func updateStatus() {
