@@ -1,9 +1,10 @@
+import SudokuCore
 import SwiftUI
 
 struct GameView: View {
     @StateObject private var viewModel: GameViewModel
 
-    init(viewModel: GameViewModel = GameViewModel()) {
+    init(viewModel: GameViewModel = GameViewModel(difficulty: .easy)) {
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
@@ -20,6 +21,29 @@ struct GameView: View {
                 )
                 .frame(maxWidth: 520)
                 .aspectRatio(1, contentMode: .fit)
+                .disabled(viewModel.isGenerating)
+
+                VStack(spacing: 8) {
+                    Text("Next Game Difficulty")
+                        .font(.subheadline.weight(.semibold))
+
+                    HStack(spacing: 8) {
+                        ForEach(SudokuDifficulty.allCases, id: \.rawValue) { difficulty in
+                            Button(difficulty.rawValue.capitalized) {
+                                viewModel.selectDifficulty(difficulty)
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(viewModel.selectedDifficulty == difficulty ? .accentColor : .secondary)
+                            .accessibilityIdentifier("sudoku.difficulty.\(difficulty.rawValue)")
+                        }
+                    }
+                }
+                .disabled(viewModel.isGenerating)
+
+                if viewModel.isGenerating {
+                    ProgressView("Generating puzzle...")
+                        .accessibilityIdentifier("sudoku.generating")
+                }
 
                 if let feedback = viewModel.feedback {
                     Text(feedback)
@@ -42,10 +66,18 @@ struct GameView: View {
                 )
                 .frame(maxWidth: 360)
                 .frame(maxWidth: .infinity)
+                .disabled(viewModel.isGenerating)
 
-                Button("New Game", action: viewModel.newGame)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("sudoku.newGame")
+                HStack {
+                    Button("Reset", action: viewModel.reset)
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("sudoku.reset")
+
+                    Button("New Game", action: viewModel.newGame)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("sudoku.newGame")
+                }
+                .disabled(viewModel.isGenerating)
             }
             .padding()
             .frame(maxWidth: 600)
