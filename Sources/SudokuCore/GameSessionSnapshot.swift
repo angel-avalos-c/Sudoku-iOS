@@ -6,6 +6,7 @@ public enum GameSessionSnapshotError: Error, Equatable, Sendable {
     case inconsistentStatus
     case invalidNotes
     case invalidHintsUsed
+    case invalidElapsedSeconds
 }
 
 /// The versioned, platform-independent durable state of a game session.
@@ -13,7 +14,7 @@ public enum GameSessionSnapshotError: Error, Equatable, Sendable {
 /// This is deliberately a data transfer object: platform adapters choose how
 /// to encode and store it, while the core validates every value on restore.
 public struct GameSessionSnapshot: Codable, Equatable, Sendable {
-    public static let currentVersion = 3
+    public static let currentVersion = 4
 
     public let version: Int
     public let givens: [[Int]]
@@ -25,6 +26,8 @@ public struct GameSessionSnapshot: Codable, Equatable, Sendable {
     public let notes: [[[Int]]]
     /// The number of hints applied during this game.
     public let hintsUsed: Int
+    /// Active elapsed seconds accumulated for this game.
+    public let elapsedSeconds: Double
 
     public init(
         version: Int = GameSessionSnapshot.currentVersion,
@@ -34,7 +37,8 @@ public struct GameSessionSnapshot: Codable, Equatable, Sendable {
         difficulty: SudokuDifficulty?,
         status: GameStatus,
         notes: [[[Int]]]? = nil,
-        hintsUsed: Int = 0
+        hintsUsed: Int = 0,
+        elapsedSeconds: Double = 0
     ) {
         self.version = version
         self.givens = givens
@@ -44,10 +48,11 @@ public struct GameSessionSnapshot: Codable, Equatable, Sendable {
         self.status = status
         self.notes = notes ?? Self.emptyNotes
         self.hintsUsed = hintsUsed
+        self.elapsedSeconds = elapsedSeconds
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, givens, solution, values, difficulty, status, notes, hintsUsed
+        case version, givens, solution, values, difficulty, status, notes, hintsUsed, elapsedSeconds
     }
 
     public init(from decoder: any Decoder) throws {
@@ -67,6 +72,11 @@ public struct GameSessionSnapshot: Codable, Equatable, Sendable {
             hintsUsed = try container.decodeIfPresent(Int.self, forKey: .hintsUsed) ?? 0
         } else {
             hintsUsed = try container.decode(Int.self, forKey: .hintsUsed)
+        }
+        if version <= 3 {
+            elapsedSeconds = try container.decodeIfPresent(Double.self, forKey: .elapsedSeconds) ?? 0
+        } else {
+            elapsedSeconds = try container.decode(Double.self, forKey: .elapsedSeconds)
         }
     }
 

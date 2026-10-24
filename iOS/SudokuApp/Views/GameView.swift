@@ -1,8 +1,10 @@
+import Foundation
 import SudokuCore
 import SwiftUI
 
 struct GameView: View {
     @StateObject private var viewModel: GameViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     init(viewModel: GameViewModel = GameViewModel(difficulty: .easy)) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -13,6 +15,10 @@ struct GameView: View {
             VStack(spacing: 20) {
                 Text("Sudoku")
                     .font(.largeTitle.bold())
+
+                Text(formattedElapsedTime)
+                    .font(.headline.monospacedDigit())
+                    .accessibilityIdentifier("sudoku.timer")
 
                 BoardView(
                     board: viewModel.board,
@@ -96,6 +102,17 @@ struct GameView: View {
             .padding()
             .frame(maxWidth: 600)
         }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            viewModel.updateTimer()
+        }
+        .onChange(of: scenePhase) { phase in
+            viewModel.setAppActive(phase == .active)
+        }
+    }
+
+    private var formattedElapsedTime: String {
+        let totalSeconds = Int(viewModel.elapsedSeconds)
+        return String(format: "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
 }
 
