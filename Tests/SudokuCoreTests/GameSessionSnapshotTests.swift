@@ -44,7 +44,7 @@ struct GameSessionSnapshotTests {
             difficulty: snapshot.difficulty,
             status: snapshot.status
         )
-        #expect(throws: GameSessionSnapshotError.unsupportedVersion(2)) {
+        #expect(throws: GameSessionSnapshotError.unsupportedVersion(3)) {
             try GameSession(snapshot: unsupportedSnapshot)
         }
 
@@ -89,5 +89,88 @@ struct GameSessionSnapshotTests {
         #expect(throws: GameSessionSnapshotError.conflictingValue(row: 0, column: 2)) {
             try GameSession(snapshot: conflictingSnapshot)
         }
+    }
+
+    @Test func roundTripsNotesAndMigratesVersionOneSnapshotsWithEmptyNotes() throws {
+        var session = try GameSession()
+        try session.toggleNote(1, row: 0, column: 2)
+        try session.toggleNote(9, row: 0, column: 2)
+
+        let restored = try GameSession(snapshot: session.snapshot())
+        #expect(restored.notes[0][2] == [1, 9])
+
+        let encodedSnapshot = try JSONEncoder().encode(session.snapshot())
+        var legacyPayload = try #require(
+            JSONSerialization.jsonObject(with: encodedSnapshot) as? [String: Any]
+        )
+        legacyPayload["version"] = 1
+        legacyPayload.removeValue(forKey: "notes")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyPayload)
+        let legacySnapshot = try JSONDecoder().decode(GameSessionSnapshot.self, from: legacyData)
+        let migrated = try GameSession(snapshot: legacySnapshot)
+        #expect(migrated.notes.allSatisfy { $0.allSatisfy(\.isEmpty) })
+
+        var versionTwoPayload = legacyPayload
+        versionTwoPayload["version"] = GameSessionSnapshot.currentVersion
+        let versionTwoData = try JSONSerialization.data(withJSONObject: versionTwoPayload)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(GameSessionSnapshot.self, from: versionTwoData)
+        }
+    }
+
+    @Test func rejectsInvalidPersistedNotes() throws {
+        let snapshot = try GameSession().snapshot()
+
+        var invalidCandidateNotes = snapshot.notes
+        invalidCandidateNotes[0][2] = [0]
+        #expect(throws: GameSessionSnapshotError.invalidNotes) {
+            try GameSession(snapshot: snapshotWith(notes: invalidCandidateNotes, from: snapshot))
+        }
+
+        var duplicateCandidateNotes = snapshot.notes
+        duplicateCandidateNotes[0][2] = [1, 1]
+        #expect(throws: GameSessionSnapshotError.invalidNotes) {
+            try GameSession(snapshot: snapshotWith(notes: duplicateCandidateNotes, from: snapshot))
+        }
+
+        var incorrectlySizedNotes = snapshot.notes
+        incorrectlySizedNotes.removeLast()
+        #expect(throws: GameSessionSnapshotError.invalidNotes) {
+            try GameSession(snapshot: snapshotWith(notes: incorrectlySizedNotes, from: snapshot))
+        }
+
+        var notesOnFixedCell = snapshot.notes
+        notesOnFixedCell[0][0] = [1]
+        #expect(throws: GameSessionSnapshotError.invalidNotes) {
+            try GameSession(snapshot: snapshotWith(notes: notesOnFixedCell, from: snapshot))
+        }
+
+        var valuesWithEntry = snapshot.values
+        valuesWithEntry[0][2] = 4
+        var notesOnFilledCell = snapshot.notes
+        notesOnFilledCell[0][2] = [1]
+        let filledCellSnapshot = GameSessionSnapshot(
+            givens: snapshot.givens,
+            solution: snapshot.solution,
+            values: valuesWithEntry,
+            difficulty: snapshot.difficulty,
+            status: snapshot.status,
+            notes: notesOnFilledCell
+        )
+        #expect(throws: GameSessionSnapshotError.invalidNotes) {
+            try GameSession(snapshot: filledCellSnapshot)
+        }
+    }
+
+    private func snapshotWith(notes: [[[Int]]], from snapshot: GameSessionSnapshot) -> GameSessionSnapshot {
+        GameSessionSnapshot(
+            version: snapshot.version,
+            givens: snapshot.givens,
+            solution: snapshot.solution,
+            values: snapshot.values,
+            difficulty: snapshot.difficulty,
+            status: snapshot.status,
+            notes: notes
+        )
     }
 }
