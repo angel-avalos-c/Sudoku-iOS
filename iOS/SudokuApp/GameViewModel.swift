@@ -13,8 +13,9 @@ final class GameViewModel: ObservableObject {
     private var session: GameSession?
     private let makeSession: @Sendable (SudokuDifficulty) throws -> GameSession
     private let makeNextSession: @Sendable (GameSession, SudokuDifficulty) throws -> GameSession
+    private let sessionStore: (any GameSessionPersisting)?
 
-    init(puzzle: Puzzle = PuzzleCatalog.starter) {
+    init(puzzle: Puzzle = PuzzleCatalog.starter, sessionStore: (any GameSessionPersisting)? = nil) {
         board = Board()
         selectedCell = nil
         status = .inProgress
@@ -27,6 +28,7 @@ final class GameViewModel: ObservableObject {
             try nextSession.newGame(difficulty: difficulty)
             return nextSession
         }
+        self.sessionStore = sessionStore
 
         do {
             let session = try GameSession(puzzle: puzzle)
@@ -40,7 +42,11 @@ final class GameViewModel: ObservableObject {
 
     /// Starts a session with a generated puzzle without blocking the main actor.
     convenience init(difficulty: SudokuDifficulty) {
-        self.init(difficulty: difficulty, sessionFactory: { try GameSession(difficulty: $0) })
+        self.init(
+            difficulty: difficulty,
+            sessionFactory: { try GameSession(difficulty: $0) },
+            sessionStore: UserDefaultsGameSessionStore()
+        )
     }
 
     init(
@@ -50,7 +56,8 @@ final class GameViewModel: ObservableObject {
             var nextSession = currentSession
             try nextSession.newGame(difficulty: difficulty)
             return nextSession
-        }
+        },
+        sessionStore: (any GameSessionPersisting)? = nil
     ) {
         board = Board()
         selectedCell = nil
@@ -61,6 +68,15 @@ final class GameViewModel: ObservableObject {
         session = nil
         makeSession = sessionFactory
         makeNextSession = nextSessionFactory
+        self.sessionStore = sessionStore
+
+        if let restoredSession = restoreSession() {
+            session = restoredSession
+            selectedDifficulty = restoredSession.difficulty ?? difficulty
+            isGenerating = false
+            synchronize(from: restoredSession)
+            return
+        }
 
         Task { [weak self] in
             guard let self else { return }
@@ -197,6 +213,17 @@ final class GameViewModel: ObservableObject {
         board = session.board
         selectedCell = session.selectedCell
         status = session.status
+        sessionStore?.save(session.snapshot())
+    }
+
+    private func restoreSession() -> GameSession? {
+        guard let snapshot = sessionStore?.load() else { return nil }
+        do {
+            return try GameSession(snapshot: snapshot)
+        } catch {
+            sessionStore?.remove()
+            return nil
+        }
     }
 
     private func startGeneratedSession(difficulty: SudokuDifficulty) async {

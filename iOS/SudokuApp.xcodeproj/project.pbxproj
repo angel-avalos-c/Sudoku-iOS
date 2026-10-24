@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		13574D43A8F42A458A42353B /* SudokuCore in Frameworks */ = {isa = PBXBuildFile; productRef = 20482E731EFA1BB8EB5F4D0F /* SudokuCore */; };
+		3288B4828F6BC03C322F4C49 /* GameSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54E17CB51F8443A14A943CB8 /* GameSessionStore.swift */; };
 		47F6F80C6CF939A43C5FB48A /* NumberPadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72128E3C34AE73D61B50D9C /* NumberPadView.swift */; };
 		5F4B291978B9317D999752C3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA579EC64CACF485CD9CA0B5 /* RootView.swift */; };
 		71810CAAEE6D9E19883DF582 /* GameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20211914A0181F443FBD46B /* GameView.swift */; };
@@ -31,6 +32,7 @@
 
 /* Begin PBXFileReference section */
 		273079D6403BD86696471034 /* SudokuApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SudokuApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		54E17CB51F8443A14A943CB8 /* GameSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSessionStore.swift; sourceTree = "<group>"; };
 		66DECA0E8FA66A770634DCD3 /* BoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardView.swift; sourceTree = "<group>"; };
 		6F3686CFF4F42C9B86B44514 /* SudokuAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SudokuAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		720CC59452DBD42D3DBEAEED /* GameViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameViewModelTests.swift; sourceTree = "<group>"; };
@@ -66,6 +68,7 @@
 		080D85B506D32F0BF8F20C3B /* SudokuApp */ = {
 			isa = PBXGroup;
 			children = (
+				54E17CB51F8443A14A943CB8 /* GameSessionStore.swift */,
 				F26FF6EA964811E7AA10EA36 /* GameViewModel.swift */,
 				DA579EC64CACF485CD9CA0B5 /* RootView.swift */,
 				97A5D2818109B45E4099BC70 /* SudokuApp.swift */,
@@ -203,6 +206,7 @@
 			files = (
 				DDEA01EC5406411E1C8F21B0 /* BoardView.swift in Sources */,
 				DF003DCF4A7F4F12242A383F /* CellView.swift in Sources */,
+				3288B4828F6BC03C322F4C49 /* GameSessionStore.swift in Sources */,
 				71810CAAEE6D9E19883DF582 /* GameView.swift in Sources */,
 				7DBC43547BEF625CA628D0BD /* GameViewModel.swift in Sources */,
 				47F6F80C6CF939A43C5FB48A /* NumberPadView.swift in Sources */,
