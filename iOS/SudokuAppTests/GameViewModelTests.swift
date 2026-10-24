@@ -218,6 +218,78 @@ struct GameViewModelTests {
         #expect(resumedLaunch.status == .inProgress)
     }
 
+    @Test func togglesNotesClearsThemOnValueEntryAndPersistsThemForResume() throws {
+        let store = InMemoryGameSessionStore()
+        let viewModel = GameViewModel(puzzle: PuzzleCatalog.starter, sessionStore: store)
+        viewModel.selectCell(row: 0, column: 2)
+
+        viewModel.toggleNoteEntry()
+        viewModel.enterFromNumberPad(1)
+        viewModel.enterFromNumberPad(9)
+        #expect(viewModel.isNoteEntryEnabled)
+        #expect(viewModel.notes[0][2] == [1, 9])
+        #expect(store.snapshot?.notes[0][2] == [1, 9])
+
+        let resumedViewModel = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { _ in throw SudokuPuzzleGeneratorError.invalidGenerationAttemptLimit(0) },
+            sessionStore: store
+        )
+        #expect(resumedViewModel.notes[0][2] == [1, 9])
+
+        viewModel.toggleNoteEntry()
+        viewModel.enterFromNumberPad(4)
+        #expect(viewModel.notes[0][2].isEmpty)
+        #expect(store.snapshot?.notes[0][2].isEmpty == true)
+    }
+
+    @Test func resetPreservesNotesModeWhileNewGameClearsNotesAndDisablesIt() async throws {
+        let viewModel = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { try GameSession(difficulty: $0, seed: 42) },
+            nextSessionFactory: { _, difficulty in try GameSession(difficulty: difficulty, seed: 0) }
+        )
+        await waitForGeneration(of: viewModel)
+        let coordinate = try #require(firstEditableCoordinate(in: viewModel.board))
+        viewModel.selectCell(row: coordinate.row, column: coordinate.column)
+        viewModel.toggleNoteEntry()
+        viewModel.enterFromNumberPad(1)
+        #expect(viewModel.isNoteEntryEnabled)
+        #expect(viewModel.notes[coordinate.row][coordinate.column] == [1])
+
+        viewModel.reset()
+        #expect(viewModel.isNoteEntryEnabled)
+        #expect(viewModel.notes.allSatisfy { $0.allSatisfy(\.isEmpty) })
+
+        viewModel.newGame()
+        await waitForGeneration(of: viewModel)
+        #expect(viewModel.isNoteEntryEnabled == false)
+        #expect(viewModel.notes.allSatisfy { $0.allSatisfy(\.isEmpty) })
+    }
+
+    @Test func failedNewGamePreservesNotesModeAndNotes() async throws {
+        let viewModel = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { try GameSession(difficulty: $0, seed: 42) },
+            nextSessionFactory: { _, difficulty in
+                throw SudokuPuzzleGeneratorError.unableToGenerateDifficulty(difficulty, attempts: 1)
+            }
+        )
+        await waitForGeneration(of: viewModel)
+        let coordinate = try #require(firstEditableCoordinate(in: viewModel.board))
+        viewModel.selectCell(row: coordinate.row, column: coordinate.column)
+        viewModel.toggleNoteEntry()
+        viewModel.enterFromNumberPad(1)
+        let boardBeforeFailure = viewModel.board
+
+        viewModel.newGame()
+        await waitForGeneration(of: viewModel)
+
+        #expect(viewModel.board == boardBeforeFailure)
+        #expect(viewModel.isNoteEntryEnabled)
+        #expect(viewModel.notes[coordinate.row][coordinate.column] == [1])
+    }
+
     @Test func newGameReplacesTheRestoredSessionAndPersistedSnapshot() async throws {
         let store = InMemoryGameSessionStore()
         let firstLaunch = GameViewModel(puzzle: PuzzleCatalog.starter, sessionStore: store)

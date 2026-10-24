@@ -16,6 +16,7 @@ struct GameView: View {
 
                 BoardView(
                     board: viewModel.board,
+                    notes: viewModel.notes,
                     selectedCell: viewModel.selectedCell,
                     onCellTap: viewModel.selectCell(row:column:)
                 )
@@ -61,11 +62,19 @@ struct GameView: View {
                 }
 
                 NumberPadView(
-                    onNumber: viewModel.enter(_:),
+                    onNumber: viewModel.enterFromNumberPad(_:),
                     onClear: viewModel.clearSelectedCell
                 )
                 .frame(maxWidth: 360)
                 .frame(maxWidth: .infinity)
+                .disabled(viewModel.isGenerating)
+
+                Toggle("Notes", isOn: Binding(
+                    get: { viewModel.isNoteEntryEnabled },
+                    set: { _ in viewModel.toggleNoteEntry() }
+                ))
+                .toggleStyle(.button)
+                .accessibilityIdentifier("sudoku.notesMode")
                 .disabled(viewModel.isGenerating)
 
                 HStack {

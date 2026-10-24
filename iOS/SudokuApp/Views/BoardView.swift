@@ -3,6 +3,7 @@ import SwiftUI
 
 struct BoardView: View {
     let board: Board
+    let notes: [[Set<Int>]]
     let selectedCell: CellCoordinate?
     let onCellTap: (Int, Int) -> Void
 
@@ -14,6 +15,7 @@ struct BoardView: View {
                 ForEach(0..<SudokuRules.gridSize, id: \.self) { column in
                     CellView(
                         cell: board.cells[row][column],
+                        notes: notes[row][column],
                         row: row,
                         column: column,
                         isSelected: selectedCell == CellCoordinate(row: row, column: column),

@@ -9,6 +9,8 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var feedback: String?
     @Published private(set) var selectedDifficulty: SudokuDifficulty
     @Published private(set) var isGenerating: Bool
+    @Published private(set) var notes: [[Set<Int>]]
+    @Published private(set) var isNoteEntryEnabled: Bool
 
     private var session: GameSession?
     private let makeSession: @Sendable (SudokuDifficulty) throws -> GameSession
@@ -22,6 +24,8 @@ final class GameViewModel: ObservableObject {
         feedback = nil
         selectedDifficulty = .easy
         isGenerating = false
+        notes = Array(repeating: Array(repeating: Set<Int>(), count: SudokuRules.gridSize), count: SudokuRules.gridSize)
+        isNoteEntryEnabled = false
         makeSession = { try GameSession(difficulty: $0) }
         makeNextSession = { currentSession, difficulty in
             var nextSession = currentSession
@@ -65,6 +69,8 @@ final class GameViewModel: ObservableObject {
         feedback = nil
         selectedDifficulty = difficulty
         isGenerating = true
+        notes = Array(repeating: Array(repeating: Set<Int>(), count: SudokuRules.gridSize), count: SudokuRules.gridSize)
+        isNoteEntryEnabled = false
         session = nil
         makeSession = sessionFactory
         makeNextSession = nextSessionFactory
@@ -137,6 +143,36 @@ final class GameViewModel: ObservableObject {
         }
 
         apply { try $0.clearCell(row: selectedCell.row, column: selectedCell.column) }
+    }
+
+    /// Uses the number pad either to enter a value or toggle a candidate note.
+    func enterFromNumberPad(_ value: Int) {
+        if isNoteEntryEnabled {
+            toggleNote(value)
+        } else {
+            enter(value)
+        }
+    }
+
+    func toggleNoteEntry() {
+        guard !isGenerating else { return }
+        isNoteEntryEnabled.toggle()
+    }
+
+    func toggleNote(_ value: Int) {
+        guard !isGenerating else { return }
+
+        guard session != nil else {
+            reportUnavailableSession()
+            return
+        }
+
+        guard let selectedCell else {
+            feedback = "Select an editable cell first."
+            return
+        }
+
+        apply { try $0.toggleNote(value, row: selectedCell.row, column: selectedCell.column) }
     }
 
     func selectDifficulty(_ difficulty: SudokuDifficulty) {
@@ -213,6 +249,7 @@ final class GameViewModel: ObservableObject {
         board = session.board
         selectedCell = session.selectedCell
         status = session.status
+        notes = session.notes
         sessionStore?.save(session.snapshot())
     }
 
@@ -235,6 +272,7 @@ final class GameViewModel: ObservableObject {
             session = generatedSession
             feedback = nil
             synchronize(from: generatedSession)
+            isNoteEntryEnabled = false
         } catch {
             session = nil
             feedback = "Unable to start the selected puzzle. Please try again."
@@ -254,6 +292,7 @@ final class GameViewModel: ObservableObject {
             session = generatedSession
             feedback = nil
             synchronize(from: generatedSession)
+            isNoteEntryEnabled = false
         } catch {
             // The detached copy ensures a failed generation cannot mutate the
             // live session.
@@ -282,6 +321,10 @@ final class GameViewModel: ObservableObject {
             return "This puzzle is complete. Start a new game to keep playing."
         case GameSessionError.unableToGenerateNewPuzzle:
             return "Unable to generate a new puzzle. Please try again."
+        case GameSessionError.invalidNoteValue:
+            return "Choose a note from 1 to 9."
+        case GameSessionError.cannotAddNoteToFilledCell:
+            return "Clear this cell before adding notes."
         case SudokuPuzzleGeneratorError.unableToGenerateDifficulty:
             return "Unable to generate the selected difficulty. Please try again."
         default:

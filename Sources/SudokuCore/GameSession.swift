@@ -21,6 +21,10 @@ public enum GameSessionError: Error, Equatable, Sendable {
     case gameAlreadyCompleted
     /// A distinct dynamically generated puzzle could not be created in time.
     case unableToGenerateNewPuzzle(SudokuDifficulty, attempts: Int)
+    /// Candidate notes must be values from 1 through 9.
+    case invalidNoteValue(Int)
+    /// Notes cannot coexist with an entered value in the same editable cell.
+    case cannotAddNoteToFilledCell(row: Int, column: Int)
 }
 
 /// State and interactions for one deterministic Sudoku game.
@@ -38,6 +42,8 @@ public struct GameSession: Equatable, Sendable {
     public private(set) var selectedCell: CellCoordinate?
     public private(set) var status: GameStatus
     public private(set) var lastMoveError: SudokuBoardError?
+    /// Candidate notes for editable, empty cells. Each set contains values in 1...9.
+    public private(set) var notes: [[Set<Int>]]
 
     private var puzzleGenerator: SudokuPuzzleGenerator?
 
@@ -49,6 +55,7 @@ public struct GameSession: Equatable, Sendable {
         selectedCell = nil
         status = board.isSolved ? .completed : .inProgress
         lastMoveError = nil
+        notes = Self.emptyNotes
         puzzleGenerator = nil
     }
 
@@ -75,7 +82,7 @@ public struct GameSession: Equatable, Sendable {
     /// Invalid or unsupported snapshots are rejected rather than allowing
     /// persisted data to bypass the game's normal board invariants.
     public init(snapshot: GameSessionSnapshot) throws {
-        guard snapshot.version == GameSessionSnapshot.currentVersion else {
+        guard (1...GameSessionSnapshot.currentVersion).contains(snapshot.version) else {
             throw GameSessionSnapshotError.unsupportedVersion(snapshot.version)
         }
 
@@ -102,6 +109,7 @@ public struct GameSession: Equatable, Sendable {
         guard snapshot.status == restoredStatus else {
             throw GameSessionSnapshotError.inconsistentStatus
         }
+        let notes = try Self.validatedNotes(snapshot.notes, board: board)
 
         self.puzzle = puzzle
         difficulty = snapshot.difficulty
@@ -109,6 +117,7 @@ public struct GameSession: Equatable, Sendable {
         selectedCell = nil
         status = restoredStatus
         lastMoveError = nil
+        self.notes = notes
         puzzleGenerator = nil
     }
 
@@ -121,7 +130,8 @@ public struct GameSession: Equatable, Sendable {
             solution: puzzle.solution,
             values: board.values,
             difficulty: difficulty,
-            status: status
+            status: status,
+            notes: notes.map { $0.map { $0.sorted() } }
         )
     }
 
@@ -150,6 +160,7 @@ public struct GameSession: Equatable, Sendable {
 
         do {
             try board.setValue(value, row: row, column: column)
+            notes[row][column].removeAll()
             lastMoveError = nil
             updateStatus()
         } catch let error as SudokuBoardError {
@@ -167,12 +178,39 @@ public struct GameSession: Equatable, Sendable {
         try setValue(0, row: row, column: column)
     }
 
+    /// Toggles one candidate note on an editable, empty cell.
+    ///
+    /// Notes are cleared when a value is successfully committed or cleared.
+    public mutating func toggleNote(_ value: Int, row: Int, column: Int) throws {
+        guard status != .completed else {
+            throw GameSessionError.gameAlreadyCompleted
+        }
+        guard (1...SudokuRules.gridSize).contains(value) else {
+            throw GameSessionError.invalidNoteValue(value)
+        }
+        let cell = try board.readCell(row: row, column: column)
+        guard cell.isEditable else {
+            throw SudokuBoardError.cannotModifyGiven(row: row, column: column)
+        }
+        guard cell.value == 0 else {
+            throw GameSessionError.cannotAddNoteToFilledCell(row: row, column: column)
+        }
+
+        if notes[row][column].contains(value) {
+            notes[row][column].remove(value)
+        } else {
+            notes[row][column].insert(value)
+        }
+        lastMoveError = nil
+    }
+
     /// Restores the original givens, clears selection and feedback, and marks
     /// the session in progress unless the original puzzle is already solved.
     public mutating func reset() throws {
         board = try puzzle.makeBoard()
         selectedCell = nil
         lastMoveError = nil
+        notes = Self.emptyNotes
         updateStatus()
     }
 
@@ -202,6 +240,7 @@ public struct GameSession: Equatable, Sendable {
         board = nextBoard
         selectedCell = nil
         lastMoveError = nil
+        notes = Self.emptyNotes
         puzzleGenerator = generator
         updateStatus()
     }
@@ -237,5 +276,32 @@ public struct GameSession: Equatable, Sendable {
 
     private mutating func updateStatus() {
         status = board.isSolved ? .completed : .inProgress
+    }
+
+    private static let emptyNotes = Array(
+        repeating: Array(repeating: Set<Int>(), count: SudokuRules.gridSize),
+        count: SudokuRules.gridSize
+    )
+
+    private static func validatedNotes(_ snapshotNotes: [[[Int]]], board: Board) throws -> [[Set<Int>]] {
+        guard snapshotNotes.count == SudokuRules.gridSize,
+              snapshotNotes.allSatisfy({ $0.count == SudokuRules.gridSize }) else {
+            throw GameSessionSnapshotError.invalidNotes
+        }
+
+        return try snapshotNotes.enumerated().map { row, rowNotes in
+            try rowNotes.enumerated().map { column, candidates in
+                let notes = Set(candidates)
+                guard notes.count == candidates.count,
+                      notes.allSatisfy({ (1...SudokuRules.gridSize).contains($0) }) else {
+                    throw GameSessionSnapshotError.invalidNotes
+                }
+                let cell = try board.readCell(row: row, column: column)
+                guard cell.isEditable ? cell.value == 0 || notes.isEmpty : notes.isEmpty else {
+                    throw GameSessionSnapshotError.invalidNotes
+                }
+                return notes
+            }
+        }
     }
 }

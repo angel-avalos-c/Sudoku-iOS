@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CellView: View {
     let cell: Cell
+    let notes: Set<Int>
     let row: Int
     let column: Int
     let isSelected: Bool
@@ -10,12 +11,18 @@ struct CellView: View {
 
     var body: some View {
         Button(action: action) {
-            Text(cell.value == 0 ? "" : "\(cell.value)")
-                .font(.title2.weight(cell.isGiven ? .bold : .regular))
-                .foregroundStyle(cell.isGiven ? Color.primary : Color.blue)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(isSelected ? Color.accentColor.opacity(0.25) : Color.clear)
-                .contentShape(Rectangle())
+            ZStack {
+                if cell.value == 0 {
+                    candidateNotes
+                } else {
+                    Text("\(cell.value)")
+                        .font(.title2.weight(cell.isGiven ? .bold : .regular))
+                        .foregroundStyle(cell.isGiven ? Color.primary : Color.blue)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(isSelected ? Color.accentColor.opacity(0.25) : Color.clear)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(cell.isGiven)
@@ -52,6 +59,24 @@ struct CellView: View {
     private var accessibilityLabel: String {
         let kind = cell.isGiven ? "given" : "editable"
         let value = cell.value == 0 ? "empty" : "\(cell.value)"
-        return "Row \(row + 1), column \(column + 1), \(kind), \(value)"
+        let noteDescription = notes.isEmpty ? "" : ", notes \(notes.sorted().map(String.init).joined(separator: ", "))"
+        return "Row \(row + 1), column \(column + 1), \(kind), \(value)\(noteDescription)"
+    }
+
+    private var candidateNotes: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<3, id: \.self) { row in
+                HStack(spacing: 0) {
+                    ForEach(1...3, id: \.self) { column in
+                        let candidate = row * 3 + column
+                        Text(notes.contains(candidate) ? "\(candidate)" : "")
+                            .font(.caption2)
+                            .foregroundStyle(Color.blue)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+        }
+        .padding(2)
     }
 }
