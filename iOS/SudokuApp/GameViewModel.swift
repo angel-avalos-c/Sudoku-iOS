@@ -11,6 +11,7 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var isGenerating: Bool
     @Published private(set) var notes: [[Set<Int>]]
     @Published private(set) var isNoteEntryEnabled: Bool
+    @Published private(set) var hintsUsed: Int
 
     private var session: GameSession?
     private let makeSession: @Sendable (SudokuDifficulty) throws -> GameSession
@@ -26,6 +27,7 @@ final class GameViewModel: ObservableObject {
         isGenerating = false
         notes = Array(repeating: Array(repeating: Set<Int>(), count: SudokuRules.gridSize), count: SudokuRules.gridSize)
         isNoteEntryEnabled = false
+        hintsUsed = 0
         makeSession = { try GameSession(difficulty: $0) }
         makeNextSession = { currentSession, difficulty in
             var nextSession = currentSession
@@ -71,6 +73,7 @@ final class GameViewModel: ObservableObject {
         isGenerating = true
         notes = Array(repeating: Array(repeating: Set<Int>(), count: SudokuRules.gridSize), count: SudokuRules.gridSize)
         isNoteEntryEnabled = false
+        hintsUsed = 0
         session = nil
         makeSession = sessionFactory
         makeNextSession = nextSessionFactory
@@ -175,6 +178,29 @@ final class GameViewModel: ObservableObject {
         apply { try $0.toggleNote(value, row: selectedCell.row, column: selectedCell.column) }
     }
 
+    func applyHint() {
+        guard !isGenerating else { return }
+
+        guard var currentSession = session else {
+            reportUnavailableSession()
+            return
+        }
+
+        do {
+            guard try currentSession.applyHint() != nil else {
+                feedback = "No valid hint is available."
+                return
+            }
+            session = currentSession
+            feedback = nil
+            synchronize(from: currentSession)
+        } catch {
+            session = currentSession
+            synchronize(from: currentSession)
+            feedback = Self.message(for: error)
+        }
+    }
+
     func selectDifficulty(_ difficulty: SudokuDifficulty) {
         guard !isGenerating else { return }
         selectedDifficulty = difficulty
@@ -250,6 +276,7 @@ final class GameViewModel: ObservableObject {
         selectedCell = session.selectedCell
         status = session.status
         notes = session.notes
+        hintsUsed = session.hintsUsed
         sessionStore?.save(session.snapshot())
     }
 

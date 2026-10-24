@@ -243,6 +243,64 @@ struct GameViewModelTests {
         #expect(store.snapshot?.notes[0][2].isEmpty == true)
     }
 
+    @Test func appliesAndPersistsHintsWithoutAStatisticsEffect() throws {
+        let store = InMemoryGameSessionStore()
+        let viewModel = GameViewModel(puzzle: PuzzleCatalog.starter, sessionStore: store)
+        viewModel.selectCell(row: 0, column: 2)
+        viewModel.toggleNote(1)
+
+        viewModel.applyHint()
+        #expect(viewModel.board.values[0][2] == 4)
+        #expect(viewModel.notes[0][2].isEmpty)
+        #expect(viewModel.hintsUsed == 1)
+        #expect(store.snapshot?.hintsUsed == 1)
+
+        let resumedViewModel = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { _ in throw SudokuPuzzleGeneratorError.invalidGenerationAttemptLimit(0) },
+            sessionStore: store
+        )
+        #expect(resumedViewModel.hintsUsed == 1)
+        #expect(resumedViewModel.board.values[0][2] == 4)
+    }
+
+    @Test func unavailableHintsReportFeedbackWithoutChangingGameState() throws {
+        let solution = PuzzleCatalog.starter.solution
+        let emptyPuzzle = try Puzzle(
+            givens: Array(repeating: Array(repeating: 0, count: SudokuRules.gridSize), count: SudokuRules.gridSize),
+            solution: solution
+        )
+        let viewModel = GameViewModel(puzzle: emptyPuzzle)
+        let unavailableCoordinate = CellCoordinate(row: 0, column: 7)
+        let alternateSolution = solution.map { row in
+            row.map { value in
+                switch value {
+                case 1: return 2
+                case 2: return 1
+                default: return value
+                }
+            }
+        }
+
+        for row in 0..<SudokuRules.gridSize {
+            for column in 0..<SudokuRules.gridSize
+            where CellCoordinate(row: row, column: column) != unavailableCoordinate {
+                viewModel.selectCell(row: row, column: column)
+                viewModel.enter(alternateSolution[row][column])
+            }
+        }
+        let boardBeforeHint = viewModel.board
+        let notesBeforeHint = viewModel.notes
+        let hintsBeforeHint = viewModel.hintsUsed
+
+        viewModel.applyHint()
+
+        #expect(viewModel.feedback == "No valid hint is available.")
+        #expect(viewModel.board == boardBeforeHint)
+        #expect(viewModel.notes == notesBeforeHint)
+        #expect(viewModel.hintsUsed == hintsBeforeHint)
+    }
+
     @Test func resetPreservesNotesModeWhileNewGameClearsNotesAndDisablesIt() async throws {
         let viewModel = GameViewModel(
             difficulty: .easy,

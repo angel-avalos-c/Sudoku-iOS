@@ -78,6 +78,11 @@ struct GameView: View {
                 .disabled(viewModel.isGenerating)
 
                 HStack {
+                    Button("Hint", action: viewModel.applyHint)
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("sudoku.hint")
+                        .disabled(viewModel.isGenerating || viewModel.status == .completed)
+
                     Button("Reset", action: viewModel.reset)
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier("sudoku.reset")
