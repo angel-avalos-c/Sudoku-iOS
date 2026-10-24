@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SudokuApp
 import SudokuCore
@@ -198,6 +199,119 @@ struct GameViewModelTests {
         #expect(viewModel.feedback == nil)
     }
 
+    @Test func resumesAnInterruptedGameFromLocalStorageOnColdLaunch() throws {
+        let store = InMemoryGameSessionStore()
+        let firstLaunch = GameViewModel(puzzle: PuzzleCatalog.starter, sessionStore: store)
+        firstLaunch.selectCell(row: 0, column: 2)
+        firstLaunch.enter(4)
+
+        let resumedLaunch = GameViewModel(
+            difficulty: .hard,
+            sessionFactory: { _ in throw SudokuPuzzleGeneratorError.invalidGenerationAttemptLimit(0) },
+            sessionStore: store
+        )
+
+        #expect(resumedLaunch.isGenerating == false)
+        #expect(resumedLaunch.board.values == firstLaunch.board.values)
+        #expect(resumedLaunch.board.cells[0][0].isGiven)
+        #expect(resumedLaunch.board.cells[0][0].value == PuzzleCatalog.starter.givens[0][0])
+        #expect(resumedLaunch.status == .inProgress)
+    }
+
+    @Test func newGameReplacesTheRestoredSessionAndPersistedSnapshot() async throws {
+        let store = InMemoryGameSessionStore()
+        let firstLaunch = GameViewModel(puzzle: PuzzleCatalog.starter, sessionStore: store)
+        firstLaunch.selectCell(row: 0, column: 2)
+        firstLaunch.enter(4)
+        let restoredSnapshot = try #require(store.snapshot)
+
+        let resumedLaunch = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { _ in throw SudokuPuzzleGeneratorError.invalidGenerationAttemptLimit(0) },
+            nextSessionFactory: { _, difficulty in try GameSession(difficulty: difficulty, seed: 0) },
+            sessionStore: store
+        )
+        #expect(resumedLaunch.board.values == restoredSnapshot.values)
+
+        resumedLaunch.selectDifficulty(.medium)
+        resumedLaunch.newGame()
+        await waitForGeneration(of: resumedLaunch)
+
+        let replacementSnapshot = try #require(store.snapshot)
+        #expect(resumedLaunch.board.values == replacementSnapshot.values)
+        #expect(replacementSnapshot.givens != restoredSnapshot.givens)
+        #expect(replacementSnapshot.values == replacementSnapshot.givens)
+        #expect(replacementSnapshot.difficulty == .medium)
+    }
+
+    @Test func resetAndNewGameReplaceThePersistedSnapshot() async throws {
+        let store = InMemoryGameSessionStore()
+        let viewModel = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { try GameSession(difficulty: $0, seed: 42) },
+            nextSessionFactory: { _, difficulty in try GameSession(difficulty: difficulty, seed: 0) },
+            sessionStore: store
+        )
+        await waitForGeneration(of: viewModel)
+        let originalSnapshot = try #require(store.snapshot)
+        let editableCell = firstEditableCoordinate(in: viewModel.board)
+        #expect(editableCell != nil)
+        guard let editableCell else { return }
+        let value = try #require((1...9).first { value in
+            (try? viewModel.board.wouldConflict(
+                value: value,
+                row: editableCell.row,
+                column: editableCell.column
+            )) == false
+        })
+
+        viewModel.selectCell(row: editableCell.row, column: editableCell.column)
+        viewModel.enter(value)
+        #expect(store.snapshot?.values != store.snapshot?.givens)
+        viewModel.reset()
+        #expect(store.snapshot?.values == store.snapshot?.givens)
+
+        viewModel.selectDifficulty(.medium)
+        viewModel.newGame()
+        await waitForGeneration(of: viewModel)
+        #expect(store.snapshot?.givens != originalSnapshot.givens)
+        #expect(store.snapshot?.difficulty == .medium)
+    }
+
+    @Test func discardsCorruptedLocalDataAndStartsANewGame() async throws {
+        let store = InMemoryGameSessionStore()
+        store.snapshot = GameSessionSnapshot(
+            version: GameSessionSnapshot.currentVersion + 1,
+            givens: PuzzleCatalog.starter.givens,
+            solution: PuzzleCatalog.starter.solution,
+            values: PuzzleCatalog.starter.givens,
+            difficulty: nil,
+            status: .inProgress
+        )
+        let viewModel = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { try GameSession(difficulty: $0, seed: 42) },
+            sessionStore: store
+        )
+
+        await waitForGeneration(of: viewModel)
+        #expect(store.removeCount == 1)
+        #expect(store.snapshot?.version == GameSessionSnapshot.currentVersion)
+        #expect(viewModel.feedback == nil)
+    }
+
+    @Test func userDefaultsStoreRemovesUndecodableData() {
+        let suiteName = "GameSessionStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = "game-session"
+        defaults.set(Data("not a snapshot".utf8), forKey: key)
+        let store = UserDefaultsGameSessionStore(defaults: defaults, key: key)
+
+        #expect(store.load() == nil)
+        #expect(defaults.data(forKey: key) == nil)
+    }
+
     private func waitForGeneration(of viewModel: GameViewModel) async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(10))
@@ -214,5 +328,24 @@ struct GameViewModelTests {
             }
         }
         return nil
+    }
+}
+
+@MainActor
+private final class InMemoryGameSessionStore: GameSessionPersisting {
+    var snapshot: GameSessionSnapshot?
+    private(set) var removeCount = 0
+
+    func load() -> GameSessionSnapshot? {
+        snapshot
+    }
+
+    func save(_ snapshot: GameSessionSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    func remove() {
+        snapshot = nil
+        removeCount += 1
     }
 }

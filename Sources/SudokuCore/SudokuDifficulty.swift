@@ -1,5 +1,5 @@
 /// The measurable difficulty labels used for generated Sudoku puzzles.
-public enum SudokuDifficulty: String, CaseIterable, Equatable, Sendable {
+public enum SudokuDifficulty: String, CaseIterable, Codable, Equatable, Sendable {
     case easy
     case medium
     case hard

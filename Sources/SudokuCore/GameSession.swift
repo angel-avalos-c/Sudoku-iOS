@@ -10,7 +10,7 @@ public struct CellCoordinate: Equatable, Sendable {
 }
 
 /// The current state of a Sudoku game session.
-public enum GameStatus: Equatable, Sendable {
+public enum GameStatus: String, Codable, Equatable, Sendable {
     case inProgress
     case completed
 }
@@ -68,6 +68,61 @@ public struct GameSession: Equatable, Sendable {
         try self.init(puzzle: puzzle)
         self.difficulty = difficulty
         puzzleGenerator = generator
+    }
+
+    /// Restores a validated, versioned snapshot created by ``snapshot``.
+    ///
+    /// Invalid or unsupported snapshots are rejected rather than allowing
+    /// persisted data to bypass the game's normal board invariants.
+    public init(snapshot: GameSessionSnapshot) throws {
+        guard snapshot.version == GameSessionSnapshot.currentVersion else {
+            throw GameSessionSnapshotError.unsupportedVersion(snapshot.version)
+        }
+
+        let puzzle = try Puzzle(givens: snapshot.givens, solution: snapshot.solution)
+        try SudokuRules.validate(values: snapshot.values)
+
+        for row in 0..<SudokuRules.gridSize {
+            for column in 0..<SudokuRules.gridSize {
+                if puzzle.givens[row][column] != 0,
+                   snapshot.values[row][column] != puzzle.givens[row][column] {
+                    throw GameSessionSnapshotError.modifiedGiven(row: row, column: column)
+                }
+                if try SudokuRules.hasConflict(in: snapshot.values, row: row, column: column) {
+                    throw GameSessionSnapshotError.conflictingValue(row: row, column: column)
+                }
+            }
+        }
+
+        let board = try Board(
+            values: snapshot.values,
+            givens: puzzle.givens.map { $0.map { $0 != 0 } }
+        )
+        let restoredStatus: GameStatus = board.isSolved ? .completed : .inProgress
+        guard snapshot.status == restoredStatus else {
+            throw GameSessionSnapshotError.inconsistentStatus
+        }
+
+        self.puzzle = puzzle
+        difficulty = snapshot.difficulty
+        self.board = board
+        selectedCell = nil
+        status = restoredStatus
+        lastMoveError = nil
+        puzzleGenerator = nil
+    }
+
+    /// Captures the durable state required to resume this game later.
+    /// Selection and transient move feedback are intentionally excluded.
+    public func snapshot() -> GameSessionSnapshot {
+        GameSessionSnapshot(
+            version: GameSessionSnapshot.currentVersion,
+            givens: puzzle.givens,
+            solution: puzzle.solution,
+            values: board.values,
+            difficulty: difficulty,
+            status: status
+        )
     }
 
     /// Selects any in-bounds cell. Both given and editable cells may be
