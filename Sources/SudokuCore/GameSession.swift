@@ -27,6 +27,17 @@ public enum GameSessionError: Error, Equatable, Sendable {
     case cannotAddNoteToFilledCell(row: Int, column: Int)
 }
 
+/// A deterministic value applied by ``GameSession/applyHint()``.
+public struct GameHint: Equatable, Sendable {
+    public let coordinate: CellCoordinate
+    public let value: Int
+
+    public init(coordinate: CellCoordinate, value: Int) {
+        self.coordinate = coordinate
+        self.value = value
+    }
+}
+
 /// State and interactions for one deterministic Sudoku game.
 ///
 /// Moves use zero-based coordinates. Conflicting, out-of-range, and fixed-cell
@@ -44,6 +55,8 @@ public struct GameSession: Equatable, Sendable {
     public private(set) var lastMoveError: SudokuBoardError?
     /// Candidate notes for editable, empty cells. Each set contains values in 1...9.
     public private(set) var notes: [[Set<Int>]]
+    /// The number of hints applied during this game.
+    public private(set) var hintsUsed: Int
 
     private var puzzleGenerator: SudokuPuzzleGenerator?
 
@@ -56,6 +69,7 @@ public struct GameSession: Equatable, Sendable {
         status = board.isSolved ? .completed : .inProgress
         lastMoveError = nil
         notes = Self.emptyNotes
+        hintsUsed = 0
         puzzleGenerator = nil
     }
 
@@ -110,6 +124,9 @@ public struct GameSession: Equatable, Sendable {
             throw GameSessionSnapshotError.inconsistentStatus
         }
         let notes = try Self.validatedNotes(snapshot.notes, board: board)
+        guard snapshot.hintsUsed >= 0 else {
+            throw GameSessionSnapshotError.invalidHintsUsed
+        }
 
         self.puzzle = puzzle
         difficulty = snapshot.difficulty
@@ -118,6 +135,7 @@ public struct GameSession: Equatable, Sendable {
         status = restoredStatus
         lastMoveError = nil
         self.notes = notes
+        hintsUsed = snapshot.hintsUsed
         puzzleGenerator = nil
     }
 
@@ -131,7 +149,8 @@ public struct GameSession: Equatable, Sendable {
             values: board.values,
             difficulty: difficulty,
             status: status,
-            notes: notes.map { $0.map { $0.sorted() } }
+            notes: notes.map { $0.map { $0.sorted() } },
+            hintsUsed: hintsUsed
         )
     }
 
@@ -204,6 +223,38 @@ public struct GameSession: Equatable, Sendable {
         lastMoveError = nil
     }
 
+    /// Applies the first row-major solution value that is currently legal.
+    ///
+    /// A hint is deterministic for identical game state. It does not affect
+    /// score or statistics. `nil` means no solution value can currently be
+    /// applied without conflicting with the board.
+    @discardableResult
+    public mutating func applyHint() throws -> GameHint? {
+        guard status != .completed else {
+            throw GameSessionError.gameAlreadyCompleted
+        }
+
+        for row in 0..<SudokuRules.gridSize {
+            for column in 0..<SudokuRules.gridSize {
+                let cell = try board.readCell(row: row, column: column)
+                guard cell.isEditable, cell.value == 0 else { continue }
+
+                let value = puzzle.solution[row][column]
+                guard try !board.wouldConflict(value: value, row: row, column: column) else {
+                    continue
+                }
+
+                try setValue(value, row: row, column: column)
+                hintsUsed += 1
+                return GameHint(
+                    coordinate: CellCoordinate(row: row, column: column),
+                    value: value
+                )
+            }
+        }
+        return nil
+    }
+
     /// Restores the original givens, clears selection and feedback, and marks
     /// the session in progress unless the original puzzle is already solved.
     public mutating func reset() throws {
@@ -211,6 +262,7 @@ public struct GameSession: Equatable, Sendable {
         selectedCell = nil
         lastMoveError = nil
         notes = Self.emptyNotes
+        hintsUsed = 0
         updateStatus()
     }
 
@@ -241,6 +293,7 @@ public struct GameSession: Equatable, Sendable {
         selectedCell = nil
         lastMoveError = nil
         notes = Self.emptyNotes
+        hintsUsed = 0
         puzzleGenerator = generator
         updateStatus()
     }

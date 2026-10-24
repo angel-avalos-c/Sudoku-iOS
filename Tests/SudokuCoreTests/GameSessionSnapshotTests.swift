@@ -44,7 +44,7 @@ struct GameSessionSnapshotTests {
             difficulty: snapshot.difficulty,
             status: snapshot.status
         )
-        #expect(throws: GameSessionSnapshotError.unsupportedVersion(3)) {
+        #expect(throws: GameSessionSnapshotError.unsupportedVersion(4)) {
             try GameSession(snapshot: unsupportedSnapshot)
         }
 
@@ -110,11 +110,28 @@ struct GameSessionSnapshotTests {
         let migrated = try GameSession(snapshot: legacySnapshot)
         #expect(migrated.notes.allSatisfy { $0.allSatisfy(\.isEmpty) })
 
-        var versionTwoPayload = legacyPayload
-        versionTwoPayload["version"] = GameSessionSnapshot.currentVersion
+        var versionTwoPayload = try #require(
+            JSONSerialization.jsonObject(with: encodedSnapshot) as? [String: Any]
+        )
+        versionTwoPayload["version"] = 2
+        versionTwoPayload.removeValue(forKey: "hintsUsed")
         let versionTwoData = try JSONSerialization.data(withJSONObject: versionTwoPayload)
+        let migratedVersionTwoSnapshot = try JSONDecoder().decode(GameSessionSnapshot.self, from: versionTwoData)
+        #expect(try GameSession(snapshot: migratedVersionTwoSnapshot).hintsUsed == 0)
+
+        versionTwoPayload.removeValue(forKey: "notes")
+        let missingVersionTwoNotesData = try JSONSerialization.data(withJSONObject: versionTwoPayload)
         #expect(throws: DecodingError.self) {
-            try JSONDecoder().decode(GameSessionSnapshot.self, from: versionTwoData)
+            try JSONDecoder().decode(GameSessionSnapshot.self, from: missingVersionTwoNotesData)
+        }
+
+        var versionThreePayload = try #require(
+            JSONSerialization.jsonObject(with: encodedSnapshot) as? [String: Any]
+        )
+        versionThreePayload.removeValue(forKey: "hintsUsed")
+        let missingVersionThreeHintsData = try JSONSerialization.data(withJSONObject: versionThreePayload)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(GameSessionSnapshot.self, from: missingVersionThreeHintsData)
         }
     }
 
@@ -160,6 +177,19 @@ struct GameSessionSnapshotTests {
         #expect(throws: GameSessionSnapshotError.invalidNotes) {
             try GameSession(snapshot: filledCellSnapshot)
         }
+
+        let negativeHintsSnapshot = GameSessionSnapshot(
+            givens: snapshot.givens,
+            solution: snapshot.solution,
+            values: snapshot.values,
+            difficulty: snapshot.difficulty,
+            status: snapshot.status,
+            notes: snapshot.notes,
+            hintsUsed: -1
+        )
+        #expect(throws: GameSessionSnapshotError.invalidHintsUsed) {
+            try GameSession(snapshot: negativeHintsSnapshot)
+        }
     }
 
     private func snapshotWith(notes: [[[Int]]], from snapshot: GameSessionSnapshot) -> GameSessionSnapshot {
@@ -170,7 +200,8 @@ struct GameSessionSnapshotTests {
             values: snapshot.values,
             difficulty: snapshot.difficulty,
             status: snapshot.status,
-            notes: notes
+            notes: notes,
+            hintsUsed: snapshot.hintsUsed
         )
     }
 }
