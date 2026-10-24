@@ -44,7 +44,7 @@ struct GameSessionSnapshotTests {
             difficulty: snapshot.difficulty,
             status: snapshot.status
         )
-        #expect(throws: GameSessionSnapshotError.unsupportedVersion(4)) {
+        #expect(throws: GameSessionSnapshotError.unsupportedVersion(5)) {
             try GameSession(snapshot: unsupportedSnapshot)
         }
 
@@ -91,7 +91,7 @@ struct GameSessionSnapshotTests {
         }
     }
 
-    @Test func roundTripsNotesAndMigratesVersionOneSnapshotsWithEmptyNotes() throws {
+    @Test func migratesPriorSnapshotVersionsAndRequiresCurrentTimerData() throws {
         var session = try GameSession()
         try session.toggleNote(1, row: 0, column: 2)
         try session.toggleNote(9, row: 0, column: 2)
@@ -118,6 +118,7 @@ struct GameSessionSnapshotTests {
         let versionTwoData = try JSONSerialization.data(withJSONObject: versionTwoPayload)
         let migratedVersionTwoSnapshot = try JSONDecoder().decode(GameSessionSnapshot.self, from: versionTwoData)
         #expect(try GameSession(snapshot: migratedVersionTwoSnapshot).hintsUsed == 0)
+        #expect(try GameSession(snapshot: migratedVersionTwoSnapshot).elapsedSeconds == 0)
 
         versionTwoPayload.removeValue(forKey: "notes")
         let missingVersionTwoNotesData = try JSONSerialization.data(withJSONObject: versionTwoPayload)
@@ -128,10 +129,25 @@ struct GameSessionSnapshotTests {
         var versionThreePayload = try #require(
             JSONSerialization.jsonObject(with: encodedSnapshot) as? [String: Any]
         )
+        versionThreePayload["version"] = 3
+        versionThreePayload.removeValue(forKey: "elapsedSeconds")
+        let versionThreeData = try JSONSerialization.data(withJSONObject: versionThreePayload)
+        let migratedVersionThreeSnapshot = try JSONDecoder().decode(GameSessionSnapshot.self, from: versionThreeData)
+        #expect(try GameSession(snapshot: migratedVersionThreeSnapshot).elapsedSeconds == 0)
+
         versionThreePayload.removeValue(forKey: "hintsUsed")
         let missingVersionThreeHintsData = try JSONSerialization.data(withJSONObject: versionThreePayload)
         #expect(throws: DecodingError.self) {
             try JSONDecoder().decode(GameSessionSnapshot.self, from: missingVersionThreeHintsData)
+        }
+
+        var versionFourPayload = try #require(
+            JSONSerialization.jsonObject(with: encodedSnapshot) as? [String: Any]
+        )
+        versionFourPayload.removeValue(forKey: "elapsedSeconds")
+        let missingVersionFourTimerData = try JSONSerialization.data(withJSONObject: versionFourPayload)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(GameSessionSnapshot.self, from: missingVersionFourTimerData)
         }
     }
 
@@ -189,6 +205,20 @@ struct GameSessionSnapshotTests {
         )
         #expect(throws: GameSessionSnapshotError.invalidHintsUsed) {
             try GameSession(snapshot: negativeHintsSnapshot)
+        }
+
+        let negativeElapsedSnapshot = GameSessionSnapshot(
+            givens: snapshot.givens,
+            solution: snapshot.solution,
+            values: snapshot.values,
+            difficulty: snapshot.difficulty,
+            status: snapshot.status,
+            notes: snapshot.notes,
+            hintsUsed: snapshot.hintsUsed,
+            elapsedSeconds: -1
+        )
+        #expect(throws: GameSessionSnapshotError.invalidElapsedSeconds) {
+            try GameSession(snapshot: negativeElapsedSnapshot)
         }
     }
 

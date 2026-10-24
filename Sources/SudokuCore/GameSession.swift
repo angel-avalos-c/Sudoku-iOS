@@ -57,8 +57,11 @@ public struct GameSession: Equatable, Sendable {
     public private(set) var notes: [[Set<Int>]]
     /// The number of hints applied during this game.
     public private(set) var hintsUsed: Int
+    /// Active elapsed seconds. Background and inactive intervals are excluded.
+    public private(set) var elapsedSeconds: Double
 
     private var puzzleGenerator: SudokuPuzzleGenerator?
+    private var timer: GameTimer
 
     /// Starts a session from a validated, reproducible puzzle.
     public init(puzzle: Puzzle = PuzzleCatalog.starter) throws {
@@ -70,7 +73,9 @@ public struct GameSession: Equatable, Sendable {
         lastMoveError = nil
         notes = Self.emptyNotes
         hintsUsed = 0
+        elapsedSeconds = 0
         puzzleGenerator = nil
+        timer = GameTimer()
     }
 
     /// Starts a session from a newly generated puzzle at the requested difficulty.
@@ -127,6 +132,9 @@ public struct GameSession: Equatable, Sendable {
         guard snapshot.hintsUsed >= 0 else {
             throw GameSessionSnapshotError.invalidHintsUsed
         }
+        guard snapshot.elapsedSeconds.isFinite, snapshot.elapsedSeconds >= 0 else {
+            throw GameSessionSnapshotError.invalidElapsedSeconds
+        }
 
         self.puzzle = puzzle
         difficulty = snapshot.difficulty
@@ -136,7 +144,9 @@ public struct GameSession: Equatable, Sendable {
         lastMoveError = nil
         self.notes = notes
         hintsUsed = snapshot.hintsUsed
+        elapsedSeconds = snapshot.elapsedSeconds
         puzzleGenerator = nil
+        timer = GameTimer(elapsedSeconds: snapshot.elapsedSeconds)
     }
 
     /// Captures the durable state required to resume this game later.
@@ -150,8 +160,28 @@ public struct GameSession: Equatable, Sendable {
             difficulty: difficulty,
             status: status,
             notes: notes.map { $0.map { $0.sorted() } },
-            hintsUsed: hintsUsed
+            hintsUsed: hintsUsed,
+            elapsedSeconds: elapsedSeconds
         )
+    }
+
+    /// Begins counting active time at the supplied timestamp.
+    public mutating func resumeTimer(at timestamp: Double) {
+        guard status == .inProgress else { return }
+        timer.resume(at: timestamp)
+    }
+
+    /// Records elapsed active time through the supplied timestamp.
+    public mutating func updateTimer(at timestamp: Double) {
+        guard status == .inProgress else { return }
+        timer.update(at: timestamp)
+        elapsedSeconds = timer.elapsedSeconds
+    }
+
+    /// Stops active-time accumulation at the supplied timestamp.
+    public mutating func pauseTimer(at timestamp: Double) {
+        timer.pause(at: timestamp)
+        elapsedSeconds = timer.elapsedSeconds
     }
 
     /// Selects any in-bounds cell. Both given and editable cells may be
@@ -173,6 +203,26 @@ public struct GameSession: Equatable, Sendable {
     ///   `lastMoveError`. Completed-game edits throw
     ///   `GameSessionError.gameAlreadyCompleted` without changing feedback.
     public mutating func setValue(_ value: Int, row: Int, column: Int) throws {
+        try applyValue(value, row: row, column: column, completionTimestamp: nil)
+    }
+
+    /// Applies an entry and records elapsed active time through
+    /// `completionTimestamp` if this entry completes the puzzle.
+    public mutating func setValue(
+        _ value: Int,
+        row: Int,
+        column: Int,
+        completionTimestamp: Double
+    ) throws {
+        try applyValue(value, row: row, column: column, completionTimestamp: completionTimestamp)
+    }
+
+    private mutating func applyValue(
+        _ value: Int,
+        row: Int,
+        column: Int,
+        completionTimestamp: Double?
+    ) throws {
         guard status != .completed else {
             throw GameSessionError.gameAlreadyCompleted
         }
@@ -182,6 +232,13 @@ public struct GameSession: Equatable, Sendable {
             notes[row][column].removeAll()
             lastMoveError = nil
             updateStatus()
+            if status == .completed {
+                if let completionTimestamp {
+                    pauseTimer(at: completionTimestamp)
+                } else {
+                    timer.freeze()
+                }
+            }
         } catch let error as SudokuBoardError {
             lastMoveError = error
             throw error
@@ -230,6 +287,17 @@ public struct GameSession: Equatable, Sendable {
     /// applied without conflicting with the board.
     @discardableResult
     public mutating func applyHint() throws -> GameHint? {
+        try applyHint(completionTimestamp: nil)
+    }
+
+    /// Applies a deterministic hint and records elapsed active time through
+    /// `completionTimestamp` if the hint completes the puzzle.
+    @discardableResult
+    public mutating func applyHint(completionTimestamp: Double) throws -> GameHint? {
+        try applyHint(completionTimestamp: Optional(completionTimestamp))
+    }
+
+    private mutating func applyHint(completionTimestamp: Double?) throws -> GameHint? {
         guard status != .completed else {
             throw GameSessionError.gameAlreadyCompleted
         }
@@ -244,7 +312,11 @@ public struct GameSession: Equatable, Sendable {
                     continue
                 }
 
-                try setValue(value, row: row, column: column)
+                if let completionTimestamp {
+                    try setValue(value, row: row, column: column, completionTimestamp: completionTimestamp)
+                } else {
+                    try setValue(value, row: row, column: column)
+                }
                 hintsUsed += 1
                 return GameHint(
                     coordinate: CellCoordinate(row: row, column: column),
@@ -263,6 +335,8 @@ public struct GameSession: Equatable, Sendable {
         lastMoveError = nil
         notes = Self.emptyNotes
         hintsUsed = 0
+        timer.reset()
+        elapsedSeconds = 0
         updateStatus()
     }
 
@@ -294,6 +368,8 @@ public struct GameSession: Equatable, Sendable {
         lastMoveError = nil
         notes = Self.emptyNotes
         hintsUsed = 0
+        timer.reset()
+        elapsedSeconds = 0
         puzzleGenerator = generator
         updateStatus()
     }

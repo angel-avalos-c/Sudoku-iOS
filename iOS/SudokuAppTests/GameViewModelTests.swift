@@ -264,6 +264,93 @@ struct GameViewModelTests {
         #expect(resumedViewModel.board.values[0][2] == 4)
     }
 
+    @Test func tracksOnlyActiveElapsedTimeAndRestoresIt() throws {
+        let clock = TestClock(now: 0)
+        let store = InMemoryGameSessionStore()
+        let viewModel = GameViewModel(
+            puzzle: PuzzleCatalog.starter,
+            sessionStore: store,
+            timeProvider: { clock.now }
+        )
+
+        clock.now = 5
+        viewModel.updateTimer()
+        viewModel.setAppActive(false)
+        clock.now = 100
+        viewModel.updateTimer()
+        #expect(viewModel.elapsedSeconds == 5)
+
+        viewModel.setAppActive(true)
+        clock.now = 110
+        viewModel.updateTimer()
+        #expect(viewModel.elapsedSeconds == 15)
+        #expect(store.snapshot?.elapsedSeconds == 15)
+
+        let resumedViewModel = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { _ in throw SudokuPuzzleGeneratorError.invalidGenerationAttemptLimit(0) },
+            sessionStore: store,
+            timeProvider: { clock.now }
+        )
+        #expect(resumedViewModel.elapsedSeconds == 15)
+    }
+
+    @Test func failedNewGamePausesAndResumesTheExistingTimerWhenActive() async throws {
+        let clock = TestClock(now: 0)
+        let viewModel = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { try GameSession(difficulty: $0, seed: 42) },
+            nextSessionFactory: { _, difficulty in
+                throw SudokuPuzzleGeneratorError.unableToGenerateDifficulty(difficulty, attempts: 1)
+            },
+            timeProvider: { clock.now }
+        )
+        await waitForGeneration(of: viewModel)
+        clock.now = 5
+        viewModel.updateTimer()
+
+        viewModel.newGame()
+        clock.now = 100
+        await waitForGeneration(of: viewModel)
+        #expect(viewModel.elapsedSeconds == 5)
+
+        clock.now = 105
+        viewModel.updateTimer()
+        #expect(viewModel.elapsedSeconds == 10)
+    }
+
+    @Test func sceneChangesDuringGenerationDoNotResumeThePausedExistingTimer() async throws {
+        let clock = TestClock(now: 0)
+        let gate = GenerationGate()
+        let viewModel = GameViewModel(
+            difficulty: .easy,
+            sessionFactory: { try GameSession(difficulty: $0, seed: 42) },
+            nextSessionFactory: { _, difficulty in
+                gate.wait()
+                throw SudokuPuzzleGeneratorError.unableToGenerateDifficulty(difficulty, attempts: 1)
+            },
+            timeProvider: { clock.now }
+        )
+        await waitForGeneration(of: viewModel)
+        clock.now = 5
+        viewModel.updateTimer()
+
+        viewModel.newGame()
+        #expect(viewModel.isGenerating)
+        viewModel.setAppActive(false)
+        clock.now = 100
+        viewModel.setAppActive(true)
+        #expect(viewModel.elapsedSeconds == 5)
+
+        gate.open()
+        await waitForGeneration(of: viewModel)
+        #expect(viewModel.elapsedSeconds == 5)
+
+        clock.now = 105
+        viewModel.updateTimer()
+        #expect(viewModel.elapsedSeconds == 10)
+    }
+
     @Test func unavailableHintsReportFeedbackWithoutChangingGameState() throws {
         let solution = PuzzleCatalog.starter.solution
         let emptyPuzzle = try Puzzle(
@@ -477,5 +564,25 @@ private final class InMemoryGameSessionStore: GameSessionPersisting {
     func remove() {
         snapshot = nil
         removeCount += 1
+    }
+}
+
+private final class TestClock: @unchecked Sendable {
+    var now: Double
+
+    init(now: Double) {
+        self.now = now
+    }
+}
+
+private final class GenerationGate: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    func wait() {
+        semaphore.wait()
+    }
+
+    func open() {
+        semaphore.signal()
     }
 }
